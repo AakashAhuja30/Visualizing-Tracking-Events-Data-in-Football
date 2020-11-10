@@ -1,4 +1,4 @@
-The Analysis has been done on publicly available Events & Tracking Data(available in JSON Format) in Football using R. The complete code is available in the file 
+The Analysis has been done on publicly available Events & Tracking Data(available in JSON Format) in Football using R. The complete code is available in the file TrackingDataVisualization_Complete.Rmd 
 
 Here is the end product after the analysis. The visualization was done using Tableau. 
 1. Spatial Analysis using Tableau & R (Controlling space using Voronoi polygons in football) : [Visualization](https://youtu.be/82d_eI1ZlFU)
