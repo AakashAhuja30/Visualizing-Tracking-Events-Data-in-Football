@@ -1,0 +1,332 @@
+---
+title: "Tracking Data Backup"
+author: "Aakash Ahuja"
+date: "26/06/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+events<-read.csv('sample-data-master/data/Sample_Game_2/Sample_Game_2_RawEventsData.csv')
+```
+
+```{r}
+#Function to change metric coordinates of event data
+
+to_metric_coordinate<- function(data, field_dim=c(106,68)){
+  x_columns<-grep(pattern="X",x= names(data),value=TRUE)
+  data_x<-data[,x_columns]
+  data_x<- (data_x-0.5)* field_dim[1]
+  data[x_columns]<-data_x
+  
+  y_columns<-grep(pattern="Y",x= names(data),value=TRUE)
+  data_y<-data[,y_columns]
+  data_y<- (-1) * (data_y-0.5)* field_dim[2]
+  data[y_columns]<-data_y
+  
+  return(data)
+}
+
+events<-to_metric_coordinate(events)
+```
+
+```{r}
+home_events<-events[events$Team=="Home",]
+away_events<-events[events$Team=="Away",]
+
+shots<-events[events$Type=='SHOT',]
+home_shots<-shots[shots$Team=='Home',]
+away_shots<-shots[shots$Team=='Away',]
+
+```
+
+```{r}
+home_goals<-filter(home_shots,str_detect(Subtype, 'GOAL'))
+away_goals<-filter(away_shots,str_detect(Subtype, 'GOAL'))
+
+home_goals_t<-pivot_longer(home_goals,c("Start.X","Start.Y","End.X","End.Y"))  
+
+home_goals_t$StartOrEnd<- ifelse(grepl("Start",home_goals_t$name),'Start','End')
+
+home_goals_t$X<-ifelse(endsWith(home_goals_t$name,"X"),home_goals_t$value,NA)
+home_goals_t$Y<-ifelse(endsWith(home_goals_t$name,"Y"),home_goals_t$value,NA)
+
+shift <- function(x, n){
+
+  c(x[-(seq(n))], rep(NA, n))  
+
+}
+
+home_goals_t$Y<-shift(home_goals_t$Y, 1)
+home_goals_t<-home_goals_t %>% drop_na(X)
+
+home_goals_t<-subset( home_goals_t, select = -c(name, value) ) # WILL
+write.csv(home_goals_t, 'home_goals.csv')
+```
+
+```{r}
+goal_events<-events[191:199,]
+goal_events$event_id<-seq(1,nrow(goal_events),1)
+
+pass_ready_data<-function(data){
+
+home_goals_t<-pivot_longer(data,c(Start.X,End.X,Start.Y,End.Y))
+home_goals_t$StartOrEnd<- ifelse(grepl("Start",home_goals_t$name),'Start','End')
+home_goals_t$X<-ifelse(endsWith(home_goals_t$name,"X"),home_goals_t$value,NA)
+home_goals_t$Y<-ifelse(endsWith(home_goals_t$name,"Y"),home_goals_t$value,NA)
+
+shift <- function(x, n){
+  c(x[-(seq(n))], rep(NA, n))
+}
+
+home_goals_t$Y<-shift(home_goals_t$Y, 2)
+home_goals_t<-home_goals_t %>% drop_na(X)
+
+return(home_goals_t)
+
+}
+
+goal_events_t<-pass_ready_data(goal_events)
+goal_events_t<-subset( goal_events_t, select = -c(name, value) ) # WILL
+write.csv(goal_events_t, 'home_goals.csv')
+
+```
+
+Starting with tracking data
+```{r}
+Tracking_home<-read.csv('sample-data-master/data/Sample_Game_2/Sample_Game_2_RawTrackingData_Home_Team.csv', header = T)
+
+Tracking_away<-read.csv('sample-data-master/data/Sample_Game_2/Sample_Game_2_RawTrackingData_Away_Team.csv', header = T)
+
+Tracking_away<-Tracking_away[,-c(28,29)]
+
+#Function to change coordinates of tracking data
+to_metric_coordinate_tracking<- function(data, field_dim=c(106,68)){
+  x_columns<-grep(pattern="_x",x= names(data),value=TRUE)
+  data_x<-data[,x_columns]
+  data_x<- (data_x-0.5)* field_dim[1]
+  data[x_columns]<-data_x
+  
+  y_columns<-grep(pattern="_y", x= names(data),value=TRUE)
+  data_y<-data[,y_columns]
+  data_y<-  (-1) * (data_y-0.5)* field_dim[2]
+  data[y_columns]<-data_y
+  
+  return(data)
+
+}
+
+#Adder Function
+shift <- function(x, n){
+  c(x[-(seq(n))], rep(NA, n))
+}
+
+#Function to get the data ready for viz in tableau
+
+Viz_ready_data<-function(data){
+
+  data<-to_metric_coordinate_tracking(data)
+  
+  x_columns<-grep(pattern="_x",x= names(data),value=TRUE)
+ 
+  data[which(data$Period== 2)[1]:nrow(data),x_columns]<-(-1)*data[which(data$Period== 2)[1]:nrow(data),x_columns]
+ 
+  data_t<-pivot_longer(data,c(4:ncol(data)))
+ 
+  data_t$X<-ifelse(endsWith(data_t$name,"_x"),data_t$value,NA)
+
+  data_t$Y<-ifelse(endsWith(data_t$name,"_y"),data_t$value,NA)
+  
+  data_t$Y<-shift(data_t$Y, 1)
+
+  data_t<-data_t %>% drop_na(X)
+
+  data_t<-data_t[,-c(5)]
+  
+  return(data_t)
+
+}
+
+Tracking_home_t<-Viz_ready_data(Tracking_home)
+Tracking_away_t<-Viz_ready_data(Tracking_away)
+
+Tracking_home_t$Home_Away<- ifelse(startsWith(Tracking_home_t$name,"Ball"),"Ball","Home")
+Tracking_away_t$Home_Away<-"Away"
+
+#Combining tracking Data for home & away teams
+Tracking_data_game_2 <- rbind(Tracking_home_t,Tracking_away_t)
+```
+
+
+**Need the Event Data to sync with this tracking data(Data for Minute by Minute Visualization of Tracking and Events Data)**
+```{r}
+events_sub<-events[,c("Type","Subtype","Start.Frame", "End.Frame")]
+events_sub<-pivot_longer(events_sub,c("Start.Frame","End.Frame"))
+colnames(events_sub)[4]<-"Frame"
+colnames(events_sub)[3]<-"Start/End"
+
+synced_data<-left_join(Tracking_data_game_2,events_sub, by="Frame")
+
+synced_data$Type<-ifelse(synced_data$Home_Away=="Ball", as.character(synced_data$Type),"")
+synced_data$Type<-ifelse(is.na(synced_data$Type), "" ,synced_data$Type)
+
+synced_data$Subtype<-ifelse(synced_data$Home_Away=="Ball", as.character(synced_data$Subtype),"")
+synced_data$Subtype<-ifelse(is.na(synced_data$Subtype), "" ,synced_data$Subtype)
+
+synced_data$`Start/End`<-ifelse(synced_data$Home_Away=="Ball", as.character(synced_data$`Start/End`),"")
+synced_data$`Start/End`<-ifelse(is.na(synced_data$`Start/End`), "" ,synced_data$`Start/End`)
+
+synced_data$timeInMinutes<-round(synced_data$Time..s./60,6)
+
+synced_data$team_ball <- ifelse(synced_data$Home_Away=="Ball", "Ball","Team")
+
+write.csv(synced_data,"Basic_Tracking_Data.csv")
+
+```
+
+**Calculating convex hull for each frame in the tracking data**
+```{r}
+synced_data_t<-synced_data 
+
+#Want to filter the 2 goalkeepers and the ball to exlude them from the convex hull
+synced_data_t$name1<-synced_data_t$name
+synced_data_t<-separate(synced_data_t,name1,c('waste','player'), sep = '_')
+synced_data_t<-synced_data_t[,-c(13)]
+
+synced_data_t1<-filter(synced_data_t, player != "11" )
+synced_data_t1<-filter(synced_data_t1, player != "25" )
+synced_data_t1<-filter(synced_data_t1,Home_Away !="Ball")
+
+
+#Calculating the convex hull for each frame
+synced_data_t2<- synced_data_t1 %>% group_by(Home_Away,Frame) %>%
+  nest() %>%
+  mutate(
+  hull=map(data, ~with(.x,chull(X,Y)))) %>%
+  mutate(
+  out=map2(data,hull,~.x[.y,,drop=F])) %>%
+  select(-data) %>%
+  unnest(cols = c(hull,out))
+ 
+
+#Removing unneeded columns from convex hull dataframe to left join with main df
+synced_data_t3<-synced_data_t2[,-c(4,5,9,10,11,12,13)]
+colnames(synced_data_t3)[5]<-"Chull_X"
+colnames(synced_data_t3)[6]<-"Chull_Y"
+
+#Computing hull_order variable to join the polygon points in the right order
+synced_data_t3_home<-filter(synced_data_t3,Home_Away=="Home")
+synced_data_t3_away<-filter(synced_data_t3,Home_Away=="Away")
+
+synced_data_t3_home<-synced_data_t3_home %>% 
+  group_by(Frame) %>% 
+  mutate(hull_order = row_number())
+
+synced_data_t3_away<-synced_data_t3_away %>% 
+  group_by(Frame) %>%
+  mutate(hull_order = row_number())
+
+synced_data_t3<-rbind(synced_data_t3_home,synced_data_t3_away)
+
+synced_data_t3<- synced_data_t3[,-c(3,7)]
+
+
+#Finally left joining the data for complete visualization in tableau
+synced_data_t4 <- left_join(synced_data_t,synced_data_t3,
+                            by=c("Frame","Home_Away","name"))
+
+#Some Cleaning up to convert NA's to nulls as tableau shows warning for NA values & no warning for null values
+synced_data_t4$Chull_X<-ifelse(is.na(synced_data_t4$Chull_X),"",synced_data_t4$Chull_X)
+synced_data_t4$Chull_Y<-ifelse(is.na(synced_data_t4$Chull_Y),"",synced_data_t4$Chull_Y)
+synced_data_t4$hull_order<-ifelse(is.na(synced_data_t4$hull_order),"",synced_data_t4$hull_order)
+
+#Final DF for visualization in tableau
+write.csv(synced_data_t4,"Tracking_Data_Convex_Hull.csv")
+
+```
+
+
+**Calculating voronoi tesselation for each frame in the dataframe**
+
+```{r}
+#install.packages('rgdal')
+library(rgdal)
+library(dismo)
+library(deldir)
+library(sp)
+library(sf)
+library(data.table)
+#--
+Tracking_data_game_2_t<-Tracking_data_game_2 
+
+#Want to filter the ball from voronoi diagram
+Tracking_data_game_2_t$name1<-Tracking_data_game_2_t$name
+Tracking_data_game_2_t<-separate(Tracking_data_game_2_t,name1,c('waste','player'), sep = '_')
+Tracking_data_game_2_t<-Tracking_data_game_2_t[,-c(8)]
+
+
+Tracking_data_game_2_t1<-filter(Tracking_data_game_2_t,Home_Away !="Ball")
+Tracking_data_game_2_t1_frame_time<-Tracking_data_game_2_t1[,c("Frame","Time..s.")]
+Tracking_data_game_2_t1_frame_time<-unique(Tracking_data_game_2_t1_frame_time[,c('Frame','Time..s.')])
+Tracking_data_game_2_t1<-Tracking_data_game_2_t1[,c("Frame","name","X","Y")]
+
+
+#Main Function for calculating Voronoi
+
+voronoi_fn<-function(data){
+  
+  g<-unique(data$Frame)
+  points <- st_as_sf(data,coords = c("X","Y"))
+
+  v <- points %>% 
+  st_union() %>%
+  st_voronoi() %>%
+  st_collection_extract()
+  
+  v_poly <- st_cast(v) %>% 
+    st_intersection(box) %>%
+    st_sf() %>%
+    st_join(points, join = st_contains)
+  v_poly<-na.omit(v_poly)
+
+    group_1<-unique(v_poly$name)
+  
+    voronoi_df<-rbindlist(lapply(group_1,function(p){
+    
+  temp_df<- data.frame(v_poly$geometry[which(v_poly$name==p)][[1]][[1]])
+  temp_df1<-data.frame(temp_df,
+                      name=as.character(p),
+                      Frame=as.integer(g))
+  
+  temp_df2<-temp_df1 %>% 
+  mutate(i_order = row_number())
+  
+}))
+  
+return(voronoi_df)  
+  
+}  
+
+
+t10<-Tracking_data_game_2_t1 %>% filter(Frame %in% c(1:70578))
+groups <- unique(t10$Frame)
+box = st_polygon(list(rbind(c(-53,-34),c(53,-34),c(53,34),c(-53,34),c(-53,-34))))
+
+deldirdf <- rbindlist(lapply(groups, function(g) {
+                       temp <- t10[t10$Frame==g,]
+                       temp1<-voronoi_fn(temp)
+                       
+                       }))
+
+
+deldirdf<-left_join(deldirdf,Tracking_data_game_2_t1_frame_time,by="Frame")
+
+
+t11<-filter(synced_data, Frame %in% c(1:70578))
+t12<-union_all(deldirdf,t11)
+t12$name<-as.character(t12$name)
+
+t12$vn_team<-ifelse(startsWith(as.character(t12$name),"Home"),"Home","Away")
+write.csv(t12,'voronoidata.csv')
+
+```
